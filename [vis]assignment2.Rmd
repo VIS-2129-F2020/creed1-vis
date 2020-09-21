@@ -1,0 +1,168 @@
+---
+title: "Assignment 2"
+author: "Chadwick Reed"
+date: "9/20/2020"
+output:
+  html_document:
+    toc: TRUE
+    toc_float: TRUE
+    code_folding: hide
+    message: FALSE
+    results: 'hide'
+    warning: FALSE
+    tidy: TRUE
+    error: TRUE
+---
+
+```{r load libraries, message=FALSE, results='hide'}
+#Loading libraries
+library(ggplot2)
+library(sf)
+library(rnaturalearth)
+library(rnaturalearthhires)
+library(tidyverse)
+library(ggspatial)
+library(cartogram)
+library(ggthemes)
+library(rgeos)
+```
+
+Selected area: South America (shown here in equirectangular projection)
+```{r message=FALSE, results='hide'}
+sa_countries <- ne_countries(scale = 50, returnclass = "sf") %>%
+  filter(continent == "South America")
+
+sa_map <- ggplot(sa_countries) +
+  geom_sf() +
+  xlab("Longitude") + ylab("Latitude")
+  ggtitle("South America")
+
+sa_map + 
+  annotation_scale()
+```
+
+
+### Projections
+```{r}
+#1 WRF Lambert Conformal
+WRF_lamb_conformal <- "+proj=lcc +lat_1=33 +lat_2=45 +lat_0=40 +lon_0=-97 +x_0=0 +y_0=0 +ellps=WGS84 +datum=WGS84 +units=m +no_defs"
+
+#2 Google Projection
+google <- "+proj=merc +a=6378137 +b=6378137 +lat_ts=0.0 +lon_0=0.0 +x_0=0.0 +y_0=0 +k=1.0 +units=m +nadgrids=@null +wktext  +no_defs"
+
+#3 US National Atlas Equal Area
+EPSG2163 <- "+proj=laea +lat_0=45 +lon_0=-100 +x_0=0 +y_0=0 +a=6370997 +b=6370997 +units=m +no_defs"
+```
+Projection 1: WRF Lambert Conformal
+```{r}
+ggplot(sa_countries) +
+  geom_sf() +
+  coord_sf(crs = WRF_lamb_conformal) +
+  theme_bw()
+```
+
+Projection 2: Google
+```{r}
+ggplot(sa_countries) +
+  geom_sf() +
+  coord_sf(crs = google) +
+  theme_bw()
+```
+
+Projection 3: US National Atlas Equal Area
+```{r}
+ggplot(sa_countries) +
+  geom_sf() +
+  coord_sf(crs = EPSG2163) +
+  theme_bw()
+```
+
+### Cartograms
+```{css, echo=FALSE}
+.spoiler {
+  visibility: hidden;
+}
+
+.spoiler::before {
+  visibility: visible;
+  content: "Hover for citation"
+}
+
+.spoiler:hover {
+  visibility: visible;
+}
+
+.spoiler:hover::before {
+  display: none;
+}
+```
+Zika Incidence, 2016 data
+<br>
+[*Pan American Health Organization / World Health Organization. Zika suspected and confirmed cases reported by countries and territories in the Americas Cumulative cases, 2015-2016. Updated as of 25
+August 2016. Washington, D.C.: PAHO/WHO; 2016; Pan American Health Organization • www.paho.org • © PAHO/WHO, 2016*]{.spoiler}
+
+```{r}
+#Selected: Google transformation (Projection 2)
+sa_transformed <- sa_countries %>%
+  st_transform(crs = google)
+
+#Preparing .csv file
+sa_zika <- read_csv("SA_zika_incidence.csv") %>%
+  rename(name = "Country Name", incidence = "Incidence Rate", pop = "Population x1000") %>%
+  select(name, incidence, pop)
+
+#Joining dataset to map
+zika_map <- sa_transformed %>%
+  left_join(sa_zika, by = c("name" = "name"))%>%
+              select(name, incidence, pop)
+
+#Defining breaks for log scale
+my_breaks = c(2, 10, 50, 250, 1250, 6000)
+```
+
+Plotting
+```{r}
+ggplot(zika_map, aes(fill = incidence)) +
+  geom_sf(color = NA) +
+  scale_fill_gradient(name = "Incidence Rate", trans = "log",
+                        breaks = my_breaks, labels = my_breaks) +
+  theme_map() +
+  theme(legend.background = element_blank()) + labs(title = "Zika Incidence in South American Nations", caption = "Incidence Rate = (autochthonous suspected + autochthonous confirmed) / 100,000 pop.")
+```
+
+```{r}
+zika_centroids <- zika_map %>%
+  st_centroid()
+```
+
+```{r}
+ggplot(sa_transformed) +
+  geom_sf(fill = NA, color = "gray") +
+  geom_sf(data = zika_centroids, 
+          aes(size = incidence),
+          alpha = 0.75, color = "thistle") +
+  scale_size_continuous(name = "Incidence Rate",
+    breaks = my_breaks,
+    labels = my_breaks)+
+  theme_void() 
+```
+
+```{r}
+zika_cartogram_cont <- zika_map %>%
+  cartogram_cont("pop")
+
+ggplot(zika_cartogram_cont, aes(fill = incidence)) +
+  geom_sf(color = NA) +
+  theme_map() +
+  theme(legend.background = element_blank())
+```
+
+```{r}
+zika_cartogram_ncont <- zika_map %>%
+  cartogram_ncont("pop")
+
+ggplot(zika_cartogram_ncont, aes(fill = incidence)) +
+  geom_sf(color = NA) +
+  theme_map() +
+  theme(legend.background = element_blank())
+```
