@@ -1,0 +1,323 @@
+---
+title: "Assignment 2"
+author: "Chadwick Reed"
+date: "9/20/2020"
+output:
+  html_document:
+    toc: TRUE
+    toc_float: TRUE
+    code_folding: hide
+    message: FALSE
+    results: 'hide'
+    warning: FALSE
+    tidy: TRUE
+    error: TRUE
+---
+
+```{r}
+library(sf)
+library(tidyverse)
+library(ggthemes)
+library(ggspatial)
+library(units)
+library(nngeo)
+library(maps)
+library(viridis)
+library(RColorBrewer)
+```
+
+```{r}
+townships <- st_read("https://opendata.arcgis.com/datasets/2f6e63652cbf4fdbb3499228b581db5d_27.kml", 
+                  quiet = TRUE)
+
+school_parcels <- st_read("https://opendata.arcgis.com/datasets/762b23b33fec4c57aea4356b58b21ebd_12.kml", 
+                  quiet = TRUE) 
+
+schools <- st_read("https://opendata.arcgis.com/datasets/7e57d5dc095442608ba84f67ef2cb7ad_1.kml", 
+                  quiet = TRUE) 
+
+college_parcels <- st_read("https://opendata.arcgis.com/datasets/7e829ed50de3423ca985a21a9de99d6f_12.kml", 
+                  quiet = TRUE) 
+
+colleges <- st_read("https://opendata.arcgis.com/datasets/ff6f0e1376a64d2e9a554efbaa737e95_11.kml", 
+                  quiet = TRUE) 
+
+parks <- st_read("https://opendata.arcgis.com/datasets/1da83b1a245c4d7884710502c1caf004_10.kml", 
+                  quiet = TRUE)
+
+crashes <- st_read("https://opendata.arcgis.com/datasets/2d42a003011a45718fc174446c7da76a_88.kml", 
+                  quiet = TRUE)
+
+libs <- st_read("https://opendata.arcgis.com/datasets/2ce0a345616a42cfba5bac2fb82d8980_16.kml", 
+                  quiet = TRUE)
+```
+
+## Data by Type
+
+
+__Polygon Data__
+
+*A. Townships<br>
+B.School parcels<br>
+  B2. College parcels<br>
+*
+
+
+__Point Data__
+
+*C. Parks<br>
+D. Fatal or injurious crashes<br>
+E. Schools<br>
+  E2. Colleges<br>
+  F. Libraries*
+
+
+```{r}
+NC_state_plane <- "+proj=lcc +lat_1=34.33333333333334 +lat_2=36.16666666666666 +lat_0=33.75 +lon_0=-79 +x_0=609601.22 +y_0=0 +ellps=GRS80 +datum=NAD83 +units=m +no_defs  "
+
+#I used the North Carolina State Plane Coordinate System (NAD1983, meters) for this assignment. 
+
+townships <- townships %>%
+  st_transform(NC_state_plane)
+
+school_parcels <- school_parcels %>%
+  st_transform(NC_state_plane)
+
+schools <- schools %>%
+  st_transform(NC_state_plane)
+
+college_parcels <- college_parcels %>%
+  st_transform(NC_state_plane)
+
+colleges <- colleges %>%
+  st_transform(NC_state_plane)
+
+parks <- parks %>%
+  st_transform(NC_state_plane)
+
+crashes <- crashes %>%
+  st_transform(NC_state_plane)
+
+libs <- libs %>%
+  st_transform(NC_state_plane)
+```
+
+All variables mapped below: 
+```{r}
+ggplot(townships) +
+  geom_sf(alpha = .2) +
+  geom_sf(data = school_parcels, fill = "Yellow3", color = "Yellow3") +
+  geom_sf(data = college_parcels, fill = "Purple", color = "Purple") +
+  geom_sf(data = crashes, color = "black", alpha = .1) +
+  geom_sf(data = libs, color = "orange") +
+  geom_sf(data = parks, color = "springgreen", size = .01) +
+  theme_map()
+```
+
+## Points within a Polygon
+
+### Figure 1: Schools within 100 meters of a fatal or injurious crash
+
+```{r}
+crashes_buffer <- st_buffer(crashes, dist = 100) %>%
+  st_union()
+
+ggplot(crashes_buffer) +
+  geom_sf(shape = 8) +
+  theme_map()
+```
+
+```{r}
+school_crashes <- schools[crashes_buffer,]
+
+ggplot(townships) +
+  geom_sf(alpha = .2, color = NA, fill = "lightgray") +
+  geom_sf(data=crashes_buffer, fill = "darkgray", color = "darkgray") +
+  geom_sf(data=school_crashes,
+          color="red",shape=17, size=2) +
+  labs(caption = "Charlotte-Mecklenburg area schools within 100 meters of a fatal or injurious car crash") +
+  theme_map()
+```
+
+```{r}
+schools <- schools %>%
+  st_join(school_crashes) %>%
+  mutate(by_crash = !is.na(Name.y))
+
+
+n_crashes_schools <- sum(schools$by_crash)
+
+n_crashes_schools
+```
+There are 5 schools within 100 meters of a fatal or injurious crash site.
+
+```{r}
+n_schools<- length(schools$by_crash)
+
+pct_crashes_schools <- n_crashes_schools / n_schools
+
+pct_crashes_schools
+```
+About 2% of all schools are within 100 meters of a fatal or injurious crash site.
+
+
+### Figure 2: Fatal or injurious car crashes within 100 meters of a school
+
+```{r}
+sp_buffer <- st_buffer(school_parcels, dist = 100, dissolve = FALSE, doEdge = TRUE) %>%
+  st_union()
+
+ggplot(sp_buffer) +
+  geom_sf(fill = "yellow2", alpha = .25) +
+  theme_map()
+```
+
+```{r}
+crash_schools <- crashes[sp_buffer,]
+
+ggplot(townships) +
+  geom_sf(alpha = .2, color = NA, fill = "lightgray") +
+  geom_sf(data=sp_buffer, fill = "yellow2", alpha = .75, color = "darkgray") +
+  geom_sf(data=crash_schools,
+          color="red",shape=17, size=2, alpha=0.45) +
+  labs(caption = "Fatal or Injurious car crashes within 100m of schools in the Charlotte-Mecklenburg metro") +
+  theme_map()
+```
+
+```{r}
+crashes <- crashes %>%
+  st_join(crash_schools) %>%
+  mutate(by_school = !is.na(Name.y))
+
+
+n_school_crashes <- sum(crashes$by_school)
+
+n_school_crashes
+```
+There are 55 recorded fatal or injurious car crashes within 100 meters of Charlotte-Mecklenburg schools.
+
+
+## Average Distance
+
+### Figure 3: Proximity of parks to libraries 
+
+```{r}
+parks <- parks %>%
+  mutate(libs_dist = st_nn(parks, libs, 
+                                      returnDist = TRUE)$dist) %>%
+            mutate(libs_dist = as.numeric(libs_dist))
+```
+
+```{r}
+avg_libs_dist <- mean(parks$libs_dist)
+
+avg_libs_dist
+```
+The average distance between libraries and parks is approximately 3091 meters.
+
+```{r}
+right_side <- st_bbox(parks)$xmax
+left_side  <- st_bbox(parks)$xmin
+top_side <- st_bbox(parks)$ymax
+bottom_side <- st_bbox(parks)$ymin
+
+
+ggplot(townships) +
+  geom_sf() +
+  geom_sf(data = parks,
+          aes(color = avg_libs_dist)) +
+  coord_sf(xlim = c(left_side, right_side), 
+           ylim = c(bottom_side, top_side), expand = TRUE) +
+  scale_color_viridis_c(name = 
+                          "Charlotte parks by distance to a library") +
+  annotation_scale(location = "br")
+```
+
+
+## Overlapping Polygons
+
+### Figure 4: Townships by presence of colleges
+
+```{r}
+townships <- townships %>%
+  mutate(num_college_parcels = lengths(st_overlaps(townships, college_parcels))) %>%
+  mutate(has_college_parcels = num_college_parcels > 0)
+
+n_college_parcels_townships <- sum(townships$has_college_parcels)
+
+#This returns 140. 140 townships within the Charlotte metro area have colleges.
+
+left_side  <- st_bbox(college_parcels)$xmin
+top_side <- st_bbox(college_parcels)$ymax
+
+ggplot(college_parcels) +
+  geom_sf(fill = "purple", color = NA) +
+  geom_sf(data = townships,
+          aes(fill = has_college_parcels)) +
+  scale_fill_manual(values = c("7", "4"),
+          name = "CLT Townships\nby presence of a college", 
+          labels = c("Township without\na college",
+                     "Township with a\ncollege")) +
+  annotation_scale(location = "br") +
+  annotation_north_arrow(location = "tr",
+                         style = north_arrow_minimal()) +
+  annotate(geom = "text", x = left_side, 
+           y = top_side - 1000, 
+           label = paste(n_college_parcels_townships ,
+                         "of the", 
+                         length(townships$Name),
+                         "Charlotte-area \ntownships neither contain\n nor overlap with", 
+                         "a park."),
+           hjust = .68, vjust = -.01, size = 2) +
+  theme_map() +
+  theme(panel.background = element_rect(fill = alpha("lightgray",0.5)),
+        legend.background = element_rect(fill = alpha("white", 0.5), 
+                                         color = "gray"))
+```
+
+## Number of Points
+
+### Figure 5: Townships by number of fatal or injurious car crashes
+
+```{r}
+townships <- townships %>%
+  mutate(num_crashes = lengths(st_covers(townships, crashes)))
+
+ggplot(townships) +
+  geom_sf(color = NA, 
+          aes(fill = num_crashes)) +
+  scale_fill_viridis_c( option = "viridis",
+                        name = "CLT Townships\nby number of fatal or \ninjurious car crashes",
+                       breaks = breaks <- seq(0, 1000, by = 20),
+                       labels = paste(prettyNum(breaks, big.mark = ","),
+                                      "crashes")) +
+  annotation_scale(location = "bl") +
+  annotation_north_arrow(location = "tr",
+                         style = north_arrow_minimal()) +
+theme_map() +
+  theme(legend.position = c(0.6,0), legend.background = element_rect(fill = alpha("white", .5), color = "gray"))
+```
+
+## Density
+
+### Townships by educational density
+
+```{r}
+townships <- townships %>%
+  mutate(area = set_units(st_area(townships), km^2)) %>%
+  mutate(num_schools = lengths(st_covers(townships, schools))) %>%
+  mutate(schools_dens = as.numeric(num_schools / area))
+
+ggplot(townships) +
+  geom_sf(color = NA, 
+          aes(fill = num_schools)) +
+  
+    scale_fill_gradientn(colors = brewer.pal( 5, "YlGn"),
+                       breaks = breaks <- seq(0, 1, by = .05),
+                       labels = paste(prettyNum(breaks, big.mark = ","))) +
+  labs(caption = "Charlotte-Mecklenburg townships by educational density") +
+  annotation_scale(location = "br") +
+  annotation_north_arrow(location = "tl",
+                         style = north_arrow_minimal())
+```
+
