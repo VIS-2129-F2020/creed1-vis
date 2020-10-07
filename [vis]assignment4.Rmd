@@ -1,0 +1,138 @@
+---
+title: "Assignment 4"
+author: "Chadwick Reed"
+date: "10/7/2020"
+output: html_document
+---
+
+## Introduction
+
+In this exercise, I looked at parks and recreational areas in the city of Wake Forest, North Carolina. Initially, I was going to look at Charlotte, NC, which is where I spent most of my childhood. However, in terms of physical size/square mileage, Charlotte is massive, and my analyses were taking way too long. I chose Wake Forest because I went to summer camp at Wake Forest University for several years, and the data was easily accessible.
+
+```{r}
+library(dplyr)
+library(knitr)
+library(osmdata)
+library(opentripplanner)
+library(tidyverse)
+library(sf)
+library(ggthemes)
+library(ggspatial)
+library(rosm)
+```
+
+```{r}
+WF_rec <- st_read("https://opendata.arcgis.com/datasets/03ff718a97ab4bb998403160581993f8_0.kml")
+```
+
+
+## Open Trip Planner Setup
+
+```{r}
+opq(bbox = 'Wake Forest NC USA') %>%
+  add_osm_feature(key = 'highway') %>%
+  osmdata_xml(file = 'OTP/graphs/default/wf_streets.osm')
+```
+
+```{r}
+NC_state_plane <- "+proj=lcc +lat_1=34.33333333333334 +lat_2=36.16666666666666 +lat_0=33.75 +lon_0=-79 +x_0=609601.22 +y_0=0 +ellps=GRS80 +datum=NAD83 +units=m +no_defs"
+
+wf_street_features <- opq(bbox = 'Wake Forest NC USA') %>%
+  add_osm_feature(key = 'highway') %>%
+  osmdata_sf()
+
+wf_streets <- wf_street_features$osm_lines %>%
+  st_transform(crs = NC_state_plane)
+```
+
+
+### Map of Wake Forest
+
+```{r}
+ggplot(wf_streets) +
+  geom_sf() +
+  theme_map()
+```
+
+```{r}
+path_otp <- otp_dl_jar("OTP")
+```
+
+```{r}
+path_data <- file.path(getwd(), "OTP")
+path_otp <- paste(path_data, "otp.jar",sep = "/")
+
+otp_build_graph(otp = path_otp, dir = path_data, memory =1024)
+```
+
+```{r}
+otp_setup(otp = path_otp, dir = path_data, memory =1024)
+```
+
+```{r}
+otpcon <- otp_connect()
+```
+
+
+## Isochrones
+
+```{r}
+iso_10min_walk <- 
+  otp_isochrone(otpcon = otpcon, fromPlace = WF_rec, 
+                mode = "WALK", cutoffSec = 600) %>%
+  st_transform(crs = NC_state_plane) %>%
+  mutate(mode = "walk")
+
+iso_10min_drive <- 
+  otp_isochrone(otpcon = otpcon, fromPlace = WF_rec, 
+                mode = "CAR", cutoffSec = 600) %>%
+  st_transform(crs = NC_state_plane) %>%
+  mutate(mode = "drive")
+
+iso_all_modes <- rbind(iso_10min_drive, iso_10min_walk)
+
+otp_stop()
+```
+
+
+```{r}
+right_side <- st_bbox(iso_all_modes)$xmax
+left_side  <- st_bbox(iso_all_modes)$xmin
+top_side <- st_bbox(iso_all_modes)$ymax
+bottom_side <- st_bbox(iso_all_modes)$ymin
+
+ggplot(iso_all_modes) +
+  annotation_map_tile(zoomin = 0, progress = "none") +
+  geom_sf(aes(fill = mode), alpha = 0.5) +
+  geom_sf(data = WF_rec) +
+  coord_sf(xlim = c(left_side, right_side), 
+           ylim = c(bottom_side, top_side), expand = FALSE) +
+  scale_fill_viridis_d(option = "plasma", name = "Area that is reachable within 5 minutes",
+                       labels = c("By car", "By foot")) +
+  theme_map() +
+  labs(caption = "Basemap Copyright OpenStreetMap contributors")
+```
+
+
+## Area Calculations
+
+```{r}
+iso_areas <- iso_all_modes %>%
+  mutate(area = st_area(iso_all_modes)) %>%
+  st_set_geometry(NULL) %>%
+  pivot_wider(names_from = mode, values_from = area) 
+
+ggplot(iso_areas, 
+       aes(x = as.numeric(walk), y = as.numeric(drive))) +
+  geom_point() +
+  scale_x_continuous(name = 
+            "Area within a five-minute walking distance\nof a park or recreation space\n(square km)",
+            breaks = breaks <- seq(10000, 130000, by = 20000),
+            labels = breaks / 1000000) +
+  scale_y_continuous(name = 
+            "Area within a five-minute driving distance\nof a park or recreation space\n(square km)",
+            breaks = breaks <- seq(0, 700000, by = 100000),
+            labels = breaks / 1000000) +
+  theme_bw()
+```
+
