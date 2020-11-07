@@ -5,14 +5,14 @@ date: "11/2/2020"
 output:
   html_document:
     toc: true
-    toc_depth: 2
+    toc_depth: 1
     toc_float: true
     theme: "paper"
 ---
 
-## Loading Libraries
+I grew up in Charlotte, where the closest major university was UNC Charlotte, which was about 30 minutes from my parents' home. So, when I moved to Minneapolis, one of the first things I noticed was the size of the student population in the city. In addition to the University of Minnesota (UMN is one of the country's largest universities), a number of fairly prominent private colleges exist in the area. However, in terms of academic presence, the Twin Cities still pale in comparison to Boston-Cambridge. Having lived in Cambridge for a few months now, I have a decent idea of the higher education landscape here, so I thought it would be interesting to look colleges and universities on the other side of the river.
 
-```{r load libraries, message=FALSE, results='hide', echo=FALSE}
+```{r load libraries, message=FALSE, results='hide', echo=FALSE, warning=FALSE}
 library(tidyverse)
 library(sf)
 library(leaflet)
@@ -23,10 +23,6 @@ library(gstat)
 library(spatial)
 library(dplyr)
 ```
-
-## Designating Dataframes and Projections
-
-I grew up in Charlotte, where the closest major university was UNC Charlotte, which was about 30 minutes from my parents' home. So, when I moved to Minneapolis, one of the first things I noticed was the size of the student population in the city. In addition to the University of Minnesota (UMN is one of the country's largest universities), a number of fairly prominent private colleges exist in the area. However, in terms of academic presence, the Twin Cities still pale in comparison to Boston-Cambridge. Having lived in Cambridge for a few months now, I have a decent idea of the higher education landscape here, so I thought it would be interesting to look colleges and universities on the other side of the river.
 
 ```{r, message=FALSE, results='hide', echo=FALSE}
 c_plane <- "+proj=longlat +datum=WGS84"
@@ -43,11 +39,9 @@ charge_st <- read_csv("C:/Users/chad/Documents/R/creed1-vis/[vis]assignment7_fil
 ```
 
 
-## Maps
+# Preliminary Map
 
-### Preliminary
-
-```{r}
+```{r, message=FALSE, error=FALSE, echo=FALSE, warning=FALSE}
 leaflet(hoods) %>%
   addProviderTiles(providers$Stamen.TonerLite) %>%
   addPolygons(highlightOptions = highlightOptions(fillColor = "gray", 
@@ -58,9 +52,9 @@ leaflet(hoods) %>%
 ```
 
 
-### Chloropleth
+# Chloropleth
 
-```{r}
+```{r, message=FALSE, error=FALSE, echo=FALSE, warning=FALSE}
 higher_ed_sf <- st_as_sf(higher_ed, coords=c("Longitude", "Latitude")) %>%
   st_set_crs(4326) %>%
   st_transform(c_plane)
@@ -68,14 +62,14 @@ higher_ed_sf <- st_as_sf(higher_ed, coords=c("Longitude", "Latitude")) %>%
 hoods_higher_ed <- hoods %>%
   mutate(num_higher_ed = lengths(st_contains(hoods, higher_ed_sf)))
 ```
-```{r}
+```{r, message=FALSE, error=FALSE, echo=FALSE, warning=FALSE}
 hoods_higher_ed$label <-
   paste(hoods_higher_ed$Name, "<br>",
         hoods_higher_ed$num_higher_ed, "colleges or universities") %>%
   lapply(htmltools::HTML)
 
 bins <- seq(min(hoods_higher_ed$num_higher_ed),
-            max(hoods_higher_ed$num_higher_ed), by=1)
+            max(hoods_higher_ed$num_higher_ed), by=5)
             
 pal <- colorNumeric("inferno", 
                     domain = hoods_higher_ed$num_higher_ed,
@@ -83,7 +77,7 @@ pal <- colorNumeric("inferno",
 
 leaflet(hoods_higher_ed) %>%
   addProviderTiles(providers$Stamen.TonerLite) %>%
-  addPolygons(highlightOptions = highlightOptions(fillOpacity = 1),
+  addPolygons(highlightOptions = highlightOptions(fillOpacity = 0.5),
               label = ~label,
               fillColor = ~pal(num_higher_ed),
               weight = 1, color = "black") %>%
@@ -97,9 +91,9 @@ leaflet(hoods_higher_ed) %>%
 ```
 
 
-## Points
+# Points
 
-```{r}
+```{r, message=FALSE, error=FALSE, echo=FALSE, warning=FALSE}
 hood_points <- st_centroid(st_transform(hoods_higher_ed, crs = MA_state_plane)) %>%
   st_transform(c_plane)
 
@@ -111,9 +105,9 @@ leaflet(hood_points) %>%
 ```
 
 
-### Interpolation
+# Interpolation
 
-```{r, message=FALSE, results='hide', echo=FALSE}
+```{r, message=FALSE, error=FALSE, echo=FALSE, warning=FALSE, results='hide'}
 hood_points_sp <- hood_points %>%
   st_transform(MA_state_plane) %>%
   as_Spatial()
@@ -127,7 +121,7 @@ hoods_raster <- raster(hoods_poly_sp, res=10)
 gs <- gstat(formula = num_higher_ed~1, locations = hood_points_sp)
 idw_interp <- interpolate(hoods_raster, gs)
 ```
-```{r}
+```{r, message=FALSE, error=FALSE, echo=FALSE, warning=FALSE}
 idw_interp_clip <- mask(idw_interp, hoods_poly_sp)
 
 leaflet(hood_points) %>%
@@ -137,13 +131,11 @@ leaflet(hood_points) %>%
             values = ~num_higher_ed,
             bins = 3,
             opacity = 0.75,
-            title = "Number of colleges/universities (approximated)",
+            title = "Number of colleges/universities",
             position = "topright")
 ```
 
 
-## Discussion
+# Discussion
 
-Of the three representations above I believe that the data-as-points representation is the most appropriate portrayal of the data and the raster interpolation is the least appropriate, despite it being a visually interesting map. I chose to represent percentage data per neighborhood; this is already an average that does not take into account variations within neighborhoods, which could be significant. Portraying the data through centroids is a level of abstraction which forces the viewer to recognize it is aggregate data fo the neighborhood. On the other hand, showing this education data as a continuous surface is misleading - these values are discontinuous.
-
-General trends in the maps show that the closer a neighborhood is to the Cambridge/Downtown Boston/Charles River area of the map, the higher the percentage of the neighborhood’s residents that have bachelor’s degrees or higher. A raster interpolation surface represents this to some extent, but is deceptive because it projects “expected values” that may be very far from reality.
+Of the maps above, I believe that the final - the interpolation map - is the most effective at clearly conveying the spatial distribution of colleges and universities in Boston. I think it's also the most visually interesting. It's certainly the most straightforward; one needs only to read the title to immediately understand the data.  As such, I think it's also the most appropriate. The least compelling of the three iterations is definitely the point/centroid map. While the chloropleth is superior to the point map in terms of legibility and appropriateness, I think it is weakened by the extent to which it can effectively convey intensity. With the heatmap, you get a good idea of the magnitude of the difference between, say, the Fenway neighborhood, with its 15 institutions, and South Boston, which has zero. Perhaps this is an issue with the color palette, but while the chloropleth communicates that the Fenway neighborhood has the greatest concentration, the degree of intensity of the variations between neighborhoods is lost.
