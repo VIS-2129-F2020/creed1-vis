@@ -1,0 +1,149 @@
+---
+title: "Assignment 7"
+author: "Chadwick Reed"
+date: "11/2/2020"
+output:
+  html_document:
+    toc: true
+    toc_depth: 2
+    toc_float: true
+    theme: "paper"
+---
+
+## Loading Libraries
+
+```{r load libraries, message=FALSE, results='hide', echo=FALSE}
+library(tidyverse)
+library(sf)
+library(leaflet)
+library(htmltools)
+library(htmlwidgets)
+library(raster)
+library(gstat)
+library(spatial)
+library(dplyr)
+```
+
+## Designating Dataframes and Projections
+
+I grew up in Charlotte, where the closest major university was UNC Charlotte, which was about 30 minutes from my parents' home. So, when I moved to Minneapolis, one of the first things I noticed was the size of the student population in the city. In addition to the University of Minnesota (UMN is one of the country's largest universities), a number of fairly prominent private colleges exist in the area. However, in terms of academic presence, the Twin Cities still pale in comparison to Boston-Cambridge. Having lived in Cambridge for a few months now, I have a decent idea of the higher education landscape here, so I thought it would be interesting to look colleges and universities on the other side of the river.
+
+```{r, message=FALSE, results='hide', echo=FALSE}
+c_plane <- "+proj=longlat +datum=WGS84"
+
+MA_state_plane <- "+proj=lcc +lat_1=41.71666666666667 +lat_2=42.68333333333333 +lat_0=41 +lon_0=-71.5 +x_0=200000 +y_0=750000 +ellps=GRS80 +units=m +no_defs"
+
+hoods <- st_read("https://opendata.arcgis.com/datasets/3525b0ee6e6b427f9aab5d0a1d0a1a28_0.kml", quiet = TRUE) %>%
+  dplyr::select(Name) %>%
+  st_transform(c_plane)
+
+higher_ed <- read_csv("C:/Users/chad/Documents/R/creed1-vis/[vis]assignment7_files/higher_ed.csv") 
+
+charge_st <- read_csv("C:/Users/chad/Documents/R/creed1-vis/[vis]assignment7_files/charge_st.csv")
+```
+
+
+## Maps
+
+### Preliminary
+
+```{r}
+leaflet(hoods) %>%
+  addProviderTiles(providers$Stamen.TonerLite) %>%
+  addPolygons(highlightOptions = highlightOptions(fillColor = "gray", 
+                                                  fillOpacity = .5),
+              label = ~Name, 
+              weight = 1) %>%
+  addCircleMarkers(data = higher_ed, color = "Yellow", radius = 4, opacity = .9, label = higher_ed$Name)
+```
+
+
+### Chloropleth
+
+```{r}
+higher_ed_sf <- st_as_sf(higher_ed, coords=c("Longitude", "Latitude")) %>%
+  st_set_crs(4326) %>%
+  st_transform(c_plane)
+
+hoods_higher_ed <- hoods %>%
+  mutate(num_higher_ed = lengths(st_contains(hoods, higher_ed_sf)))
+```
+```{r}
+hoods_higher_ed$label <-
+  paste(hoods_higher_ed$Name, "<br>",
+        hoods_higher_ed$num_higher_ed, "colleges or universities") %>%
+  lapply(htmltools::HTML)
+
+bins <- seq(min(hoods_higher_ed$num_higher_ed),
+            max(hoods_higher_ed$num_higher_ed), by=1)
+            
+pal <- colorNumeric("inferno", 
+                    domain = hoods_higher_ed$num_higher_ed,
+                    na.color = "#00000000")
+
+leaflet(hoods_higher_ed) %>%
+  addProviderTiles(providers$Stamen.TonerLite) %>%
+  addPolygons(highlightOptions = highlightOptions(fillOpacity = 1),
+              label = ~label,
+              fillColor = ~pal(num_higher_ed),
+              weight = 1, color = "black") %>%
+  addLegend(pal = pal,
+            values = ~num_higher_ed,
+            bins = 3,
+            opacity = 0.75,
+            title = "Colleges/Universities per Neighborhood",
+            position = "topright")
+
+```
+
+
+## Points
+
+```{r}
+hood_points <- st_centroid(st_transform(hoods_higher_ed, crs = MA_state_plane)) %>%
+  st_transform(c_plane)
+
+leaflet(hood_points) %>%
+  addProviderTiles(providers$Stamen.TonerLite) %>%
+  addCircles(label = ~label, fillColor = ~pal(num_higher_ed), stroke = FALSE, radius = 200, fillOpacity = 0.5) %>%
+  addControl("Number of colleges/universities",
+             position = "topright")
+```
+
+
+### Interpolation
+
+```{r, message=FALSE, results='hide', echo=FALSE}
+hood_points_sp <- hood_points %>%
+  st_transform(MA_state_plane) %>%
+  as_Spatial()
+
+hoods_poly_sp <- hoods %>%
+  st_transform(MA_state_plane) %>%
+  as_Spatial
+
+hoods_raster <- raster(hoods_poly_sp, res=10)
+
+gs <- gstat(formula = num_higher_ed~1, locations = hood_points_sp)
+idw_interp <- interpolate(hoods_raster, gs)
+```
+```{r}
+idw_interp_clip <- mask(idw_interp, hoods_poly_sp)
+
+leaflet(hood_points) %>%
+  addProviderTiles(providers$Stamen.TonerLite) %>%
+  addRasterImage(idw_interp_clip, colors = pal, opacity = 0.75) %>%
+  addLegend(pal = pal,
+            values = ~num_higher_ed,
+            bins = 3,
+            opacity = 0.75,
+            title = "Number of colleges/universities (approximated)",
+            position = "topright")
+```
+
+
+## Discussion
+
+Of the three representations above I believe that the data-as-points representation is the most appropriate portrayal of the data and the raster interpolation is the least appropriate, despite it being a visually interesting map. I chose to represent percentage data per neighborhood; this is already an average that does not take into account variations within neighborhoods, which could be significant. Portraying the data through centroids is a level of abstraction which forces the viewer to recognize it is aggregate data fo the neighborhood. On the other hand, showing this education data as a continuous surface is misleading - these values are discontinuous.
+
+General trends in the maps show that the closer a neighborhood is to the Cambridge/Downtown Boston/Charles River area of the map, the higher the percentage of the neighborhood’s residents that have bachelor’s degrees or higher. A raster interpolation surface represents this to some extent, but is deceptive because it projects “expected values” that may be very far from reality.
